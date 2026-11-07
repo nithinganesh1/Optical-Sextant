@@ -1,601 +1,638 @@
-# Optical Sextant --- Sun Tracker
+# Suntracker Dashboard
 
-A software and optical-geometry module for a double-reflection sextant
-integrated into a camera-assisted Sun Tracker. It models the optical
-path, converts the X-axis motor position into a sextant reading,
-estimates the Sun altitude from camera alignment error, and exposes
-geometry for the dashboard's optical diagram.
+A Python-based dashboard and hardware-control system for a
+camera-assisted Sun Tracker. The project combines live camera feeds, Sun
+detection and image processing, optical-sextant geometry, motor/stepper
+control, serial communication, and embedded-controller firmware.
 
-> **Scope:** This README documents the supplied `sextant.py` and
-> `optics.js` implementations and their integration points. It does not
-> claim that the schematic dimensions are measured physical dimensions
-> or that the complete instrument has been experimentally calibrated.
+The Flask dashboard provides live tracker state, camera streams, and
+command endpoints. The optical-sextant module models the
+double-reflection path and converts the tracker axis position and
+image-alignment error into a sextant reading and estimated Sun altitude.
 
-## 1. Optical principle
+> **Hardware warning:** This project can command moving motors and
+> mechanisms. Check wiring, limit switches, motor directions, travel
+> limits, and emergency-stop behaviour before enabling motion.
 
-The instrument uses two reflections:
+------------------------------------------------------------------------
+
+## Features
+
+-   Flask-based dashboard for monitoring and issuing tracker commands.
+-   Server-sent events (SSE) for periodic dashboard state updates.
+-   MJPEG camera-stream endpoints.
+-   Sun detection and image-processing logic.
+-   Optical-sextant ray-tracing model implemented in JavaScript.
+-   Python calculations for sextant reading, residual correction, and
+    Sun-altitude estimation.
+-   Serial communication with embedded motor controllers.
+-   Separate firmware directories for the ESP32 bridge and gimbal
+    controllers.
+-   Runtime integration for tracker, camera, and hardware-control
+    components.
+
+------------------------------------------------------------------------
+
+## Project layout
 
 ``` text
-Sun → index mirror B (movable) → horizon mirror A (fixed) → telescope C
+Suntracker_Dash_final_final/
+├── app.py
+├── dashboard_server.py
+├── serial_check.py
+├── sextant.py
+├── stepper_link.py
+├── suntracker.py
+├── sun_controller.py
+├── tracker_runtime.py
+├── requirements.txt
+├── README.md
+├── web_app_overview.md
+├── Assets/
+├── static/
+│   ├── optics.js
+│   ├── ...
+│   └── ...
+├── templates/
+│   └── ...
+├── esp32_bridge/
+│   └── ...
+├── gimbol/
+│   └── ...
+└── gimbol_x_z/
+    └── ...
 ```
 
--   **Mirror B --- index mirror:** rotates with the X-axis mechanism.
--   **Mirror A --- horizon mirror:** fixed relative to the telescope
-    axis.
--   **Telescope C:** observes the reflected Sun image together with the
-    horizon reference.
+The entries shown with `...` represent files inside those directories;
+the exact contents can vary as the project develops.
 
-The index mirror changes the direction of the reflected Sun ray by twice
-the mirror's angular rotation. When the reflected Sun image and horizon
-image coincide, the sextant reading equals the Sun altitude under the
-geometry and alignment assumptions used by this implementation.
+### Main Python files
 
-The ideal coincidence condition is:
+  -----------------------------------------------------------------------
+  File                                Responsibility
+  ----------------------------------- -----------------------------------
+  `dashboard_server.py`               Flask dashboard server and
+                                      dashboard API routes.
 
-\[ `\theta `{=tex}= `\frac{\alpha}{2}`{=tex} \]
+  `tracker_runtime.py`                Connects the dashboard to the
+                                      tracker runtime, controllers, and
+                                      hardware links.
 
-where: - (`\theta`{=tex}) is the index-mirror rotation away from its
-parallel-to-horizon-mirror reference position. - (`\alpha`{=tex}) is the
-Sun altitude.
+  `app.py`                            Standalone camera tracking and
+                                      motion application.
 
-The corresponding sextant reading is:
+  `suntracker.py`                     Sun detection and image-processing
+                                      logic.
 
-\[ R = 2`\theta`{=tex} \]
+  `sun_controller.py`                 Tracking and axis-controller logic.
 
-At coincidence, (R=`\alpha`{=tex}).
+  `stepper_link.py`                   Serial communication wrapper for
+                                      stepper hardware.
 
-## 2. Motor angle and sextant reading
+  `sextant.py`                        Pure Python optical-sextant
+                                      calculations.
 
-The Python module `sextant.py` maps the logical X-axis motor angle to
-the index-mirror angle and sextant reading.
+  `serial_check.py`                   Serial-port validation and
+                                      diagnostic helper.
+  -----------------------------------------------------------------------
 
-The configured reference is:
+### Other directories and files
+
+  -----------------------------------------------------------------------
+  Path                                Responsibility
+  ----------------------------------- -----------------------------------
+  `static/`                           Dashboard CSS and JavaScript.
+                                      Includes `optics.js`, which models
+                                      the optical ray path.
+
+  `templates/`                        HTML templates used by the Flask
+                                      dashboard.
+
+  `Assets/`                           Project assets used by the
+                                      dashboard or its supporting
+                                      interface.
+
+  `esp32_bridge/`                     ESP32 firmware for the motor/serial
+                                      bridge.
+
+  `gimbol/`                           Gimbal and IMU-related firmware.
+
+  `gimbol_x_z/`                       Alternate gimbal firmware variant.
+
+  `requirements.txt`                  Python package dependencies.
+
+  `web_app_overview.md`               Additional notes about the web
+                                      application.
+  -----------------------------------------------------------------------
+
+------------------------------------------------------------------------
+
+## Requirements
+
+-   Python 3
+-   The Python packages listed in `requirements.txt`
+-   A compatible camera, if camera tracking or video streaming is
+    required
+-   The relevant embedded controller and motor hardware, if motion
+    control is required
+-   Serial access permissions for the connected controller
+
+The exact camera indices, serial device names, and hardware
+configuration depend on the machine and connected devices.
+
+------------------------------------------------------------------------
+
+## Installation
+
+### 1. Clone or open the project
+
+``` bash
+cd ~/Evolve/Projects/Suntracker_Dash_final_final
+```
+
+If you have cloned the repository into a different location, use that
+directory instead.
+
+### 2. Create a virtual environment
+
+``` bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+### 3. Install dependencies
+
+``` bash
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+If installation fails, check that the virtual environment is active and
+review the package error before installing additional system
+dependencies.
+
+------------------------------------------------------------------------
+
+## Running the application
+
+### Run the dashboard server
+
+``` bash
+python dashboard_server.py
+```
+
+The dashboard server starts the Flask application and tracker runtime.
+The server supports configuration options for host, port, serial device,
+and disabling selected hardware features. Check the command-line help
+for the options available in the current checkout:
+
+``` bash
+python dashboard_server.py --help
+```
+
+### Run the standalone tracker application
+
+``` bash
+python app.py
+```
+
+`app.py` is a separate application path. Do not run it at the same time
+as `dashboard_server.py` when both processes would attempt to access the
+same camera or serial device.
+
+------------------------------------------------------------------------
+
+## Dashboard API
+
+The Flask dashboard exposes the following routes:
+
+  -----------------------------------------------------------------------
+  Route                   Method / type           Purpose
+  ----------------------- ----------------------- -----------------------
+  `/`                     HTTP GET                Serves the dashboard
+                                                  page.
+
+  `/api/stream`           Server-Sent Events      Streams tracker-state
+                                                  snapshots periodically.
+
+  `/api/state`            HTTP GET                Returns the current
+                                                  tracker state.
+
+  `/api/command`          HTTP command endpoint   Receives dashboard
+                                                  commands.
+
+  `/video/cam1`           MJPEG stream            Camera 1 video feed.
+
+  `/video/cam2`           MJPEG stream            Camera 2 video feed.
+  -----------------------------------------------------------------------
+
+The SSE endpoint sends snapshots at approximately 100 ms intervals.
+Actual update and video rates depend on the runtime, camera, and system
+load.
+
+For details about the dashboard interface and its controls, also refer
+to `web_app_overview.md`.
+
+------------------------------------------------------------------------
+
+## Optical sextant
+
+The optical-sextant model represents a double-reflection path:
+
+1.  Sunlight reaches the index mirror **B**.
+2.  The beam reflects from the index mirror, whose angle changes with
+    the tracker axis.
+3.  The reflected beam reaches the fixed horizon mirror **A**.
+4.  The beam reflects again and travels toward the telescope axis **C**.
+
+The JavaScript model in `static/optics.js` calculates and displays this
+ray path. The Python module `sextant.py` converts the tracker-axis
+position and image-alignment error into sextant values.
+
+### Coordinate and angle conventions
+
+The SVG model uses screen coordinates:
+
+-   Positive X points right.
+-   Positive Y points down.
+-   Angles are measured clockwise in degrees.
+-   The telescope axis is horizontal at the height of mirror A.
+-   The horizon beam travels from the left.
+-   The fixed mirror A line angle is 60°.
+-   The index mirror B line angle is `60° + theta`.
+
+The reflection calculation uses:
+
+``` text
+d' = 2(d · u)u - d
+```
+
+where `d` is the incoming direction and `u` is the unit vector along the
+mirror line.
+
+### Tracker angle and sextant reading
+
+The Python model defines the surface-level X-axis position as 60°.
+
+``` text
+theta = 60° - X
+sextant_reading = 2 × theta
+```
+
+Therefore:
+
+    Logical X position   Index-mirror angle `theta`   Sextant reading
+  -------------------- ---------------------------- -----------------
+                   60°                           0°                0°
+                    0°                          60°              120°
+
+The inverse conversion is:
+
+``` text
+X = 60° - (sextant_reading / 2)
+```
+
+These are logical model relationships. Confirm the physical motor
+direction and zero position during calibration.
+
+### Image-alignment residual
+
+The Python calculation can correct the sextant reading using the pixel
+difference between the detected Sun position and the target position.
+
+``` text
+err_px = sun_position - target_position
+
+residual_deg =
+    2 × deg_per_step × err_px / px_per_step
+```
+
+The sign convention is:
+
+-   Positive `err_px`: the detected Sun is to the right of the target.
+-   Negative `err_px`: the detected Sun is to the left of the target.
+
+When the Sun is detected and the optical alignment is within the model's
+valid altitude range:
+
+``` text
+sun_altitude = sextant_reading + residual_deg
+zenith_distance = 90° - sun_altitude
+```
+
+The model returns no Sun-altitude estimate when the required
+detection/calibration inputs are unavailable or the corrected result is
+outside the configured altitude range.
+
+### Python API: `sextant.py`
+
+The module is designed as pure calculation code. It does not directly
+access cameras, motors, serial ports, OpenCV, or Flask.
+
+Important constants:
 
   ---------------------------------------------------------------------------
-  Quantity                                        Value Meaning
+  Constant                                        Value Meaning
   ------------------------ ---------------------------- ---------------------
-  `SURFACE_LEVEL_X_DEG`                             60° X-axis position where
-                                                        the index mirror is
-                                                        parallel to the
-                                                        horizon mirror;
-                                                        reading is 0°
+  `SURFACE_LEVEL_X_DEG`                             60° Logical X position
+                                                        corresponding to
+                                                        surface level.
 
-  `LIMB_MAX_READING_DEG`                           120° Maximum represented
-                                                        sextant reading
+  `LIMB_MAX_READING_DEG`                           120° Maximum sextant
+                                                        reading in the model.
 
-  `MIRROR_A_DEG`                                    60° Fixed horizon-mirror
-                                                        line angle used by
-                                                        the optical model
+  `MIRROR_A_DEG`                                    60° Fixed mirror line
+                                                        angle.
 
-  `ALTITUDE_MAX_DEG`                                90° Maximum physical Sun
-                                                        altitude accepted by
-                                                        the Python
-                                                        calculation
+  `ALTITUDE_MAX_DEG`                                90° Maximum accepted Sun
+                                                        altitude.
 
-  `deg_per_step` default                   0.1125°/step Default motor angle
-                                                        per step passed to
-                                                        the residual
-                                                        calculation
+  `EPS`                                          `1e-6` Small numerical
+                                                        tolerance.
   ---------------------------------------------------------------------------
 
-The mapping is:
-
-\[ `\theta `{=tex}= 60\^`\circ `{=tex}- X \]
-
-\[ R = 2(60\^`\circ`{=tex}-X) \]
-
-The inverse mapping is:
-
-\[ X = 60\^`\circ `{=tex}- `\frac{R}{2}`{=tex} \]
-
-Examples:
-
-    X motor angle   Index-mirror turn (`\theta`{=tex})   Sextant reading (R)
-  --------------- ------------------------------------ ---------------------
-              60°                                   0°                    0°
-              45°                                  15°                   30°
-              30°                                  30°                   60°
-              15°                                  45°                   90°
-               0°                                  60°                  120°
-
-The intended measurement scan is **X = 0° to 60°**, corresponding to a
-**0° to 120°** limb reading. The Python module separately reports the
-wider configured motor range of **X = -60° to 60°**. These ranges are
-not interchangeable: `in_scan_range` describes the sextant measurement
-scan, while `in_motor_range` describes the wider motor range encoded in
-`sextant.py`.
-
-## 3. Camera correction and Sun-altitude estimate
-
-The Camera 1 tracker measures the horizontal pixel error between the
-detected Sun centre and the configured target point:
-
--   `err_px = sun_x - target_x`
--   Positive error means the Sun is to the right of the target.
--   `px_per_step` is the measured image displacement per X motor step.
--   `deg_per_step` is the motor angle represented by one step.
-
-The residual angular difference is calculated by `residual_deg()`:
-
-\[ `\Delta `{=tex}= `\frac{2\,d_s\,e_{px}}{p_s}`{=tex} \]
-
-where: - (`\Delta`{=tex}) is the residual altitude difference in
-degrees. - (d_s) is degrees per motor step. - (e\_{px}) is Camera 1
-pixel error. - (p_s) is pixels moved per motor step.
-
-The factor of two is present because a mirror rotation changes the
-reflected ray angle by twice the mirror rotation.
-
-When the Sun is detected, `compute()` estimates:
-
-\[ `\alpha`{=tex}\_{`\text{estimated}`{=tex}} = R + `\Delta`{=tex} \]
-
-The estimate is returned as `sun_altitude_deg` only if it lies within
-the accepted physical range of 0° to 90° (with the module's small
-numerical tolerance). If the Sun is not detected, or the estimate is
-outside that range, the altitude is `None`.
-
-`residual_deg` returns `None` when the pixel error is unavailable or
-`px_per_step` is zero/false. The caller should therefore treat a missing
-residual or altitude as unavailable data, not as a measured zero.
-
-### Coincidence / lock
-
-The `coincident` output is true only when both conditions are true:
-
--   `sun_detected` is true.
--   The caller supplies `locked=True`.
-
-The sextant module does not independently decide whether the camera is
-locked. It receives that tracking state from the caller.
-
-## 4. Optical ray model (`static/optics.js`)
-
-`optics.js` is a pure JavaScript geometry module. It does not access the
-DOM, camera, motors, Flask or hardware. It can be loaded by the browser
-dashboard or imported in Node.js for tests.
-
-### Coordinate convention
-
-The drawing uses SVG screen coordinates:
-
--   +X points right.
--   +Y points down.
--   Angles are in degrees and measured clockwise on screen.
--   A ray direction at angle (a) is represented by:
-
-\[ `\mathbf{d}`{=tex}(a)=(`\cos `{=tex}a,`\sin `{=tex}a) \]
-
-This is a screen-coordinate convention; it is not the usual Cartesian
-convention with +Y upward.
-
-### Reflection equation
-
-For a ray direction (`\mathbf `{=tex}d) and a unit vector
-(`\mathbf `{=tex}u) along the mirror line, the reflected direction is:
-
-\[ `\mathbf `{=tex}d' =
-2(`\mathbf `{=tex}d`\cdot`{=tex}`\mathbf `{=tex}u)`\mathbf `{=tex}u-`\mathbf `{=tex}d
-\]
-
-The model applies this operation twice:
-
-1.  Reflect the incoming Sun ray from index mirror B.
-2.  Reflect the resulting ray from fixed horizon mirror A.
-
-The incoming Sun direction is represented as:
-
-\[
-`\mathbf `{=tex}d\_{`\text{in}`{=tex}}=(`\cos`{=tex}`\alpha`{=tex},`\sin`{=tex}`\alpha`{=tex})
-\]
-
-The model defines the index-mirror line angle as:
-
-\[ `\phi`{=tex}\_B = `\phi`{=tex}\_A+`\theta`{=tex} \]
-
-where the fixed mirror line angle is `MIRROR_A_DEG = 60°`.
-
-For the ideal geometry, the exit-ray tilt is:
-
-\[ `\text{exit tilt}`{=tex}=2`\theta`{=tex}-`\alpha`{=tex} \]
-
-The JavaScript result uses a sign convention where positive exit tilt
-means the ray travels upward on the SVG screen. At
-(`\theta`{=tex}=`\alpha`{=tex}/2), the exit ray is horizontal and
-follows the telescope/horizon axis.
-
-### Schematic geometry constants
-
-The `GEOM` object contains drawing parameters, not a physical
-calibration record:
-
-  ------------------------------------------------------------------------
-  Constant                                     Value Purpose
-  --------------------- ---------------------------- ---------------------
-  `A`                                     (250, 390) Horizon-mirror pivot
-
-  `BA_DISTANCE`                                  215 Distance from B to A
-                                                     along the coincident
-                                                     ray
-
-  `MIRROR_A_DEG`                                 60° Fixed mirror line
-                                                     angle in SVG
-                                                     coordinates
-
-  `AXIS_END_X`                                   700 Telescope-axis
-                                                     drawing endpoint
-
-  `SUN_DISTANCE`                                 190 Sun-symbol drawing
-                                                     distance from B
-
-  `MIRROR_HALF`                                   34 Half-length of the
-                                                     drawn index mirror
-
-  `A_HALF`                                        30 Half-length of the
-                                                     drawn horizon mirror
-
-  `LIMB_RADIUS`                                  290 Radius of the drawn
-                                                     sextant limb
-
-  `THETA_DRAW_MIN` /                       -4° / 64° Drawing clamp for
-  `THETA_DRAW_MAX`                                   index-mirror angle
-
-  `ALT_DRAW_MAX`                                120° Drawing clamp for
-                                                     altitude input
-  ------------------------------------------------------------------------
-
-The point B is derived from A and the configured distance:
-
-\[ B=A-D\_{BA},`\mathbf `{=tex}u(2`\phi`{=tex}\_A) \]
-
-This positions B along the model's chosen coincident-ray direction.
-
-The drawing accepts altitude values up to 120° so it can display the
-full schematic limb/ghost-ray range. This is a visualization limit, not
-a statement that the Sun can physically reach 120° altitude. The Python
-measurement calculation restricts a valid Sun altitude to 0°--90°.
-
-### Ray intersection and mirror aperture
-
-`trace(thetaDeg, altitudeDeg)` calculates:
-
--   Sun symbol position.
--   Mirror pivots A and B.
--   Incoming and reflected ray directions.
--   Intersection (`hit`) of the ray after mirror B with the line of
-    mirror A.
--   Whether the intersection is outside the simplified silvered region
-    (`missed`).
--   Exit ray endpoint (`exitEnd`) when it travels toward positive X.
--   Exit-ray tilt (`exitTiltDeg`).
--   Endpoints for the two drawn mirror lines.
-
-The intersection is computed parametrically. If the ray is parallel to
-the mirror-A line, or the intersection is not forward along the ray,
-`hit` remains `null`. The simplified aperture test marks the ray as
-missed when its hit point is farther than `2 * A_HALF` from pivot A.
-
-`limbPoint(thetaDeg, extra)` returns a point on the drawn limb around B
-for the supplied index-mirror angle.
-
-## 5. Python API (`sextant.py`)
-
-The Python module is intentionally independent of hardware, OpenCV and
-Flask. It contains pure calculations and returns ordinary Python values.
-
-  ---------------------------------------------------------------------------------------
-  Function                                            Purpose
-  --------------------------------------------------- -----------------------------------
-  `index_mirror_deg(x_deg)`                           Converts X motor angle to
-                                                      index-mirror turn (`\theta`{=tex})
-
-  `reading_deg(x_deg)`                                Converts X motor angle to sextant
-                                                      reading
-
-  `x_deg_for_reading(reading)`                        Converts a requested reading to X
-                                                      motor angle
-
-  `residual_deg(err_px, px_per_step, deg_per_step)`   Converts Camera 1 pixel error into
-                                                      an angular residual
-
-  `compute(...)`                                      Returns the complete sextant state
-                                                      dictionary
-  ---------------------------------------------------------------------------------------
-
-### `compute()` inputs
+Main functions:
+
+-   `compute(...)` --- calculates the sextant reading, scan/motor range
+    flags, residual, and altitude-related values.
+-   `residual_deg(...)` --- calculates the pixel-error correction when
+    the required calibration values are available.
+-   `x_deg_for_reading(...)` --- converts a sextant reading back to the
+    logical X-axis position.
+
+Example:
 
 ``` python
-compute(
-    x_deg,
-    err_px=None,
-    px_per_step=None,
-    deg_per_step=0.1125,
-    sun_detected=False,
-    locked=False,
-)
-```
+from sextant import compute
 
-### `compute()` output fields
-
-  -------------------------------------------------------------------------
-  Field                               Description
-  ----------------------------------- -------------------------------------
-  `x_deg`                             Supplied logical X motor angle
-
-  `theta_deg`                         Index-mirror turn from the reference
-                                      position
-
-  `reading_deg`                       Sextant reading, (2`\theta`{=tex})
-
-  `arc_fraction`                      Reading divided by the 120° limb
-                                      maximum
-
-  `in_scan_range`                     Whether X is in the 0°--60°
-                                      measurement scan
-
-  `in_motor_range`                    Whether X is in the -60°--60°
-                                      configured motor range
-
-  `on_limb`                           Whether the reading is within the
-                                      0°--120° limb
-
-  `mirror_a_deg`                      Fixed mirror angle constant
-
-  `residual_deg`                      Camera-derived residual, or `None`
-
-  `sun_altitude_deg`                  Estimated Sun altitude in 0°--90°, or
-                                      `None`
-
-  `zenith_distance_deg`               (90\^`\circ`{=tex}-`\alpha`{=tex}),
-                                      or `None`
-
-  `coincident`                        `sun_detected and locked`
-
-  `surface_level_x_deg`               X reference angle corresponding to
-                                      reading zero
-  -------------------------------------------------------------------------
-
-### Example
-
-``` python
-import sextant
-
-# Motor angle only: ideal instrument reading
-reading = sextant.reading_deg(30.0)
-print(f"Sextant reading: {reading:.2f} deg")  # 60.00 deg
-
-# Full state with camera information
-state = sextant.compute(
+result = compute(
     x_deg=30.0,
-    err_px=2.0,
-    px_per_step=1.5,
+    err_px=2.5,
+    px_per_step=4.0,
     deg_per_step=0.1125,
     sun_detected=True,
     locked=False,
 )
 
-print(state["theta_deg"])
-print(state["reading_deg"])
-print(state["residual_deg"])
-print(state["sun_altitude_deg"])
+print(result)
 ```
 
-## 6. Integration with the Sun Tracker
+The `compute()` result includes values such as:
 
-The supplied `tracker_runtime.py` imports `sextant` and runs the
-camera/motor tracking loop in a background thread. It maintains Camera 1
-and Camera 2 measurements, tracking controllers, the stepper link,
-IMU/gimbal status, events and a latest-state snapshot.
+-   `theta`
+-   `reading`
+-   `arc_fraction`
+-   `in_scan_range`
+-   `in_motor_range`
+-   `on_limb`
+-   `residual_deg`
+-   `sun_altitude_deg`
+-   `zenith_distance_deg`
+-   `coincident`
+-   `surface_level_x_deg`
 
-The runtime's documented architecture is:
+### JavaScript ray model: `static/optics.js`
+
+`optics.js` is a browser-compatible geometry module and can also be
+loaded in Node.js for calculation tests. It does not require the
+dashboard DOM to perform its geometry calculations.
+
+Important model parameters include:
+
+  ------------------------------------------------------------------------
+  Parameter                                    Value Meaning
+  --------------------- ---------------------------- ---------------------
+  `A`                             `{x: 250, y: 390}` Fixed mirror A pivot
+                                                     in the SVG model.
+
+  `BA_DISTANCE`                                  215 Distance between the
+                                                     mirror pivots in the
+                                                     model.
+
+  `MIRROR_A_DEG`                                 60° Fixed mirror line
+                                                     angle.
+
+  `AXIS_END_X`                                   700 Telescope-axis
+                                                     drawing endpoint.
+
+  `SUN_DISTANCE`                                 190 Sun-ray drawing
+                                                     distance.
+
+  `MIRROR_HALF`                                   34 Half-length used to
+                                                     draw the index
+                                                     mirror.
+
+  `A_HALF`                                        30 Half-length used to
+                                                     draw mirror A.
+
+  `LIMB_RADIUS`                                  290 Radius used for the
+                                                     limb drawing.
+  ------------------------------------------------------------------------
+
+The drawing clamps theta to -4° through 64° and altitude to 0° through
+120°. These are visualization bounds, not proof of physical hardware
+travel limits.
+
+Main functions:
+
+-   `trace(thetaDeg, altitudeDeg)` --- returns the calculated ray path,
+    mirror positions, hit/miss information, and exit-ray tilt.
+-   `limbPoint(thetaDeg, extra)` --- returns a point on the displayed
+    limb.
+
+At the model's coincidence condition:
 
 ``` text
-Camera 1 ── Sun detection / target pixel error ── X controller ── X stepper
-     │
-     └──────────────────────────────────────────────┐
-                                                    │
-X motor position + Camera 1 calibration ── sextant.py
-                                                    │
-                                                    ▼
-                                             Dashboard snapshot
-                                                    │
-Camera 2 ── Sun-to-line distance ── Y controller ── Y stepper
-                                                    │
-IMU / gimbal serial telemetry ──────────────────────┤
-                                                    ▼
-                                            Flask dashboard
-                                                    │
-                                     optics.js draws ray geometry
+theta = altitude / 2
+exit_tilt = 2 × theta - altitude = 0°
 ```
 
-The roles are distinct:
+The outgoing ray is horizontal, and the reflected images coincide in the
+idealized geometry.
 
--   `sextant.py` computes the instrument reading and altitude-related
-    values.
--   `optics.js` computes the schematic double-reflection ray geometry
-    for visualization.
--   `tracker_runtime.py` coordinates cameras, controllers, serial
-    communication and the live snapshot.
--   The Flask server exposes the snapshot and camera streams to the
-    browser.
--   The dashboard JavaScript consumes the state and renders the optical
-    diagram.
+The ray model uses schematic SVG dimensions. They should not be treated
+as measured physical dimensions of the built instrument.
 
-The runtime uses the X-axis camera calibration to obtain `px_per_step`.
-In the supplied runtime excerpt, `x_px_per_step()` uses `X_PX_PER_STEP`
-when explicitly configured; otherwise it derives the value from the X
-controller gain and sign. Keep this calibration consistent with the
-actual camera orientation and motor direction.
+------------------------------------------------------------------------
 
-The gimbal/IMU telemetry is a separate stabilization/status path. It
-should not be confused with the double-reflection sextant angle
-calculation.
+## Hardware and serial setup
 
-## 7. Running and testing
+### Serial devices
 
-The sextant maths can be tested without connecting the tracker hardware.
+Depending on the connected board and USB-to-serial adapter, Linux may
+expose the controller as:
 
-From the project directory:
+``` text
+/dev/ttyUSB0
+/dev/ttyUSB1
+/dev/ttyACM0
+```
+
+List available serial devices:
 
 ``` bash
-python3 - <<'PY'
-import sextant
-
-for x in (60, 45, 30, 15, 0):
-    print(
-        f"X={x:5.1f} deg | "
-        f"reading={sextant.reading_deg(x):6.1f} deg"
-    )
-PY
+ls /dev/ttyUSB* /dev/ttyACM* 2>/dev/null
 ```
 
-For the JavaScript geometry module in Node.js:
+Check serial-port permissions:
 
 ``` bash
-node - <<'JS'
-const Optics = require("./static/optics.js");
-
-const result = Optics.trace(30, 60);
-console.log({
-  theta: result.theta,
-  altitude: result.altitude,
-  hit: result.hit,
-  missed: result.missed,
-  exitTiltDeg: result.exitTiltDeg
-});
-
-console.log(Optics.limbPoint(30));
-JS
+groups
 ```
 
-The browser dashboard can load `static/optics.js` as a normal script; in
-that environment the module attaches `Optics` to the global root
-(`window`).
+If the user is not in the `dialout` group, add the user and log out/in
+for the change to take effect:
 
-These examples test the mathematical modules only. They do not start
-cameras, connect to the motor controller or verify physical alignment.
+``` bash
+sudo usermod -aG dialout "$USER"
+```
 
-## 8. Calibration and alignment considerations
+Use `serial_check.py` to help validate serial connectivity. Confirm the
+correct device and baud rate against the firmware before starting the
+tracker.
 
-Before relying on altitude values:
+### Cameras
 
-1.  Home the X mechanism and verify that the reported logical X angle
-    corresponds to the actual mechanical position.
-2.  Verify the reference pose: X = 60° must represent the configured
-    zero-reading/surface-level position.
-3.  Calibrate Camera 1's pixel movement per X motor step using the
-    tracker calibration routine.
-4.  Confirm the sign of `px_per_step` against the actual camera
-    orientation and motor direction.
-5.  Verify the Camera 1 target point/ROI and ensure the detected Sun
-    centre is stable.
-6.  Confirm the fixed horizon mirror and telescope reference are
-    mechanically aligned.
-7.  Compare the computed reading with a known reference before treating
-    it as a measured altitude.
+Check the camera index configuration used by the tracking application. A
+camera may appear at index `0`, `1`, or another index depending on the
+connected devices and operating system.
 
-The software equations assume the stated mirror geometry and a correctly
-established mechanical zero. Errors in mirror mounting, camera
-orientation, backlash, motor-step calibration or reference alignment
-will affect the result.
+Before enabling tracking:
 
-The source code does not provide a complete optical calibration
-procedure for mirror flatness, telescope boresight, index error,
-refraction correction, or atmospheric/astronomical corrections. Those
-should not be assumed to be implemented.
+-   Confirm each camera opens successfully.
+-   Verify the correct camera is assigned to each stream.
+-   Check the frame dimensions and focus.
+-   Ensure no other process is holding the camera.
 
-## 9. Important implementation notes
+### Motors and embedded controllers
 
--   **Angle conventions differ by module.** `sextant.py` uses logical
-    motor and instrument angles. `optics.js` uses clockwise SVG screen
-    angles with +Y downward. Convert deliberately when adding new
-    geometry or dashboard features.
--   **Drawing limits are not physical limits.** The JavaScript model
-    clamps its drawing inputs for visualization. The Python module
-    applies its own measurement and motor-range checks.
--   **A missing value is not zero.** `None` means the calculation is
-    unavailable or outside the accepted range.
--   **Lock state is supplied externally.** `compute()` does not
-    determine image coincidence from pixels; it reports the `locked`
-    flag supplied by the tracker.
--   **The aperture check is schematic.** It uses a distance threshold
-    around A rather than a detailed model of mirror shape, thickness,
-    mounting or clear aperture.
--   **The model is idealized.** No wavelength-dependent effects, mirror
-    imperfections, telescope distortion, atmospheric refraction or
-    instrument index-error correction are present in the supplied
-    functions.
+The firmware directories contain controller-specific code. Before
+connecting the software to live hardware:
 
-## 10. Troubleshooting
+-   Confirm the firmware matches the connected controller.
+-   Verify STEP, DIR, ENABLE, limit-switch, and serial wiring.
+-   Confirm motor direction and axis assignment.
+-   Test limit switches and homing at low speed.
+-   Verify the configured travel range.
+-   Keep a way to stop motor power immediately during testing.
+
+Do not assume pin assignments or motion limits are identical across
+`gimbol/`, `gimbol_x_z/`, and `esp32_bridge/`. Check the firmware source
+for the exact board and wiring configuration being used.
+
+------------------------------------------------------------------------
+
+## Typical operating workflow
+
+1.  Connect the cameras and embedded controllers.
+2.  Verify the serial device and baud rate.
+3.  Check the camera feeds independently.
+4.  Confirm IMU and motor-controller communication.
+5.  Start the dashboard server.
+6.  Confirm the dashboard state and camera streams are updating.
+7.  Verify homing and limit-switch status.
+8.  Enable tracking or motion only after the mechanical setup is
+    confirmed.
+9.  Monitor the camera feed, tracker state, and motor behaviour during
+    operation.
+
+------------------------------------------------------------------------
+
+## Calibration notes
+
+The optical model and physical instrument must be aligned before using
+calculated readings as measurements.
+
+Recommended checks:
+
+1.  **Mirror alignment:** Set the instrument to its surface-level
+    reference and verify the fixed mirror and index mirror geometry.
+2.  **Axis zero:** Confirm the physical X-axis position that corresponds
+    to the logical 60° surface-level reference.
+3.  **Motor direction:** Verify that positive and negative commands move
+    the axis in the expected direction.
+4.  **Pixel scale:** Measure `px_per_step` for the actual camera,
+    resolution, lens, and mechanical arrangement.
+5.  **Step calibration:** Verify `deg_per_step` against measured
+    physical movement.
+6.  **Coincidence:** Confirm that the detected Sun image and reference
+    image coincide at the expected optical condition.
+7.  **Altitude validation:** Compare calculated values against a trusted
+    reference over several positions.
+
+Calibration values can change when the camera, lens, resolution, mirror
+mounting, or mechanical arrangement changes.
+
+------------------------------------------------------------------------
+
+## Troubleshooting
 
   -----------------------------------------------------------------------
-  Symptom                             What to check
+  Problem                             Checks
   ----------------------------------- -----------------------------------
-  Reading changes in the wrong        Verify X motor direction and the
-  direction                           `SURFACE_LEVEL_X_DEG - X`
-                                      convention
+  Dashboard does not start            Activate `.venv`, install
+                                      `requirements.txt`, and inspect the
+                                      Python traceback.
 
-  Reading is offset at the horizon    Re-check the X = 60° mechanical
-  reference                           reference and mirror alignment
+  Serial device not found             Check USB connection, device path,
+                                      baud rate, and `dialout`
+                                      permissions.
 
-  Sun altitude is `None`              Check `sun_detected`,
-                                      `px_per_step`, pixel error, and
-                                      whether the calculated altitude
-                                      falls within 0°--90°
+  Camera cannot open                  Check camera index, device
+                                      permissions, and whether another
+                                      process is using it.
 
-  Residual is `None`                  Check that `err_px` is available
-                                      and `px_per_step` is non-zero
+  Video stream is blank               Confirm the camera opens in the
+                                      runtime and inspect the
+                                      corresponding camera endpoint.
 
-  Dashboard ray and reported reading  Check that both use the same X
-  disagree                            angle, index-mirror angle and angle
-                                      units
+  Dashboard state does not update     Check the tracker runtime and
+                                      `/api/stream` or `/api/state`
+                                      responses.
 
-  JavaScript ray reports `hit: null`  Check for a parallel ray/mirror
-                                      configuration or an intersection
-                                      behind the ray origin
+  Motors do not move                  Verify controller power, serial
+                                      communication, enable wiring,
+                                      STEP/DIR signals, and limit-switch
+                                      state.
 
-  JavaScript ray reports              The modeled hit is outside the
-  `missed: true`                      simplified silvered region of
-                                      mirror A
+  Homing does not complete            Check switch wiring and polarity,
+                                      configured travel limits, and
+                                      firmware homing settings.
 
-  Image does not become coincident    Check camera target/ROI,
-                                      calibration sign and gain, motor
-                                      direction, mechanical backlash and
-                                      optical alignment
-  -----------------------------------------------------------------------
+  Sextant reading looks incorrect     Verify the X-axis reference, mirror
+                                      alignment, angle convention, and
+                                      `deg_per_step`.
 
-## 11. File responsibilities
+  Altitude correction is incorrect    Verify the sign of `err_px`,
+                                      `px_per_step`, camera alignment,
+                                      and pixel-to-step calibration.
 
-  -----------------------------------------------------------------------
-  File                                Responsibility
-  ----------------------------------- -----------------------------------
-  `sextant.py`                        Pure Python sextant angle, reading,
-                                      residual and altitude calculations
-
-  `static/optics.js`                  Pure JavaScript double-reflection
-                                      ray geometry and limb drawing
-                                      points
-
-  `tracker_runtime.py`                Live camera, controller, motor, IMU
-                                      and snapshot runtime
-
-  `dashboard_server.py`               Flask routes for dashboard, state,
-                                      commands, SSE and MJPEG
-
-  `templates/dashboard.html`          Dashboard page structure
-
-  `static/optics.js`                  Optical ray model used by the
-                                      dashboard
-
-  `static/dashboard.js`               Dashboard-side state and
-                                      interaction logic (if present in
-                                      the project)
-
-  `static/dashboard.css`              Dashboard styling
+  Optical rays do not meet            Check the selected theta/altitude
+                                      values and whether the ray
+                                      intersection falls within the
+                                      mirror model.
   -----------------------------------------------------------------------
 
 ------------------------------------------------------------------------
 
-**Project:** Sun Tracker --- Optical Sextant\
-**Primary calculation module:** `sextant.py`\
-**Optical visualization module:** `static/optics.js`
+## Development notes
+
+-   Keep `sextant.py` independent of hardware and UI code so its
+    calculations can be tested separately.
+-   Keep `static/optics.js` focused on geometry and ray tracing rather
+    than dashboard event handling.
+-   Avoid running `app.py` and `dashboard_server.py` concurrently if
+    they share camera or serial resources.
+-   Treat the JavaScript optical drawing as a schematic model, not a
+    physical CAD model.
+-   Re-test camera, serial, homing, and limit behaviour after changing
+    firmware or hardware wiring.
+
+------------------------------------------------------------------------
+
+## License
+
+This project is provided as-is for personal, experimental, and
+educational use. No separate license terms are specified here; add the
+appropriate license file if the project is intended for redistribution
+or public use.
